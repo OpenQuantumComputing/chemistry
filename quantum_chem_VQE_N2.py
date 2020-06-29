@@ -1,11 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
-try:
-    from quantum_chem_psi4 import get_ccsd_energies_N2
-except:
-    "Could not import the openfermion library"
 from matplotlib import rc
-rc('text', usetex=True)
+try:
+    rc('text', usetex=True)
+except:
+    "Could not use LaTeX font"
 import matplotlib.gridspec as gridspec
 
 from qiskit.aqua.algorithms import VQE, NumPyEigensolver
@@ -13,25 +12,33 @@ from qiskit.chemistry.components.variational_forms import UCCSD
 from qiskit.chemistry.components.initial_states import HartreeFock
 from qiskit.aqua.components.optimizers import SLSQP
 from qiskit.aqua.operators import Z2Symmetries
-from qiskit import BasicAer
-from qiskit.chemistry.drivers import PySCFDriver, UnitsType
+from qiskit.chemistry.drivers import PySCFDriver, UnitsType, PyQuanteDriver
 from qiskit.chemistry import FermionicOperator
-
-# Should be a input variable, Fix later
-backend = BasicAer.get_backend("statevector_simulator")
 
 """
 Short comment: The freeze_list is under control, makes sense intuitively, but the remove_list is harder.
 The current computer can only deal with up to 12 Orbitals, and runs out of memory with more.
-The choice of which orbitals to remove requires more domain knowledge than what SINTEF currently possess.  
-However removing the (degenerate) spin orbitals with the second highest energy seems to yield good results.
+Removing the (degenerate) spin orbitals with the second highest energy seems to yield good results.
+Further investigation is required concerning the removal of orbitals.
+
+Configuring the necessary quantum chemistry libraries is hard to do in Windows, so if the simulations are ran on a 
+Windows system, the driver "PyQuante" should be used. If on Linux, the driver PYSCF is included when installing qiskit,
+and should be used. The speed of PYSCF is significantly much higher than PyQuante.
 """
-def get_qubit_op_N2(dist):
-    driver = PySCFDriver(atom="N .0 .0 .0; N .0 .0 " + str(dist), unit=UnitsType.ANGSTROM,
-                         charge=0, spin=0, basis='sto3g')
+def get_qubit_op_N2(distances, driver="pyquante", remove_list=[]):
+    """
+    :param distances: Array of distances in Ångstrøm that will be simulated
+    :param driver: Specifies the chemistry driver
+    :param remove_list: List of which oribtals to manually remove. [-2,-3] seems to work well.
+    :return: Array of energies of the system corresponding to the distances array.
+    """
+    if driver=="pyquante":
+        driver = PyQuanteDriver(atoms="N .0 .0 .0; N .0 .0 " + str(distances), units=UnitsType.ANGSTROM, charge=0)
+    else:
+        driver = driver = PySCFDriver(atom="N .0 .0 .0; N .0 .0 " + str(distances), unit=UnitsType.ANGSTROM,
+                                      charge=0, spin=0, basis='sto3g')
     molecule = driver.run()
-    freeze_list = [0,1]
-    remove_list = [-2,-3]
+    freeze_list = [0, 1]
     repulsion_energy = molecule.nuclear_repulsion_energy
     num_particles = molecule.num_alpha + molecule.num_beta
     num_spin_orbitals = molecule.num_orbitals * 2
@@ -43,10 +50,11 @@ def get_qubit_op_N2(dist):
     remove_list += [x + molecule.num_orbitals - len(freeze_list)  for x in remove_list]
     freeze_list += [x + molecule.num_orbitals for x in freeze_list]
     ferOp = FermionicOperator(h1=molecule.one_body_integrals, h2=molecule.two_body_integrals)
-    # Remove the freezed orbitals/electrons
+    # Remove the frozen orbitals/electrons
     ferOp, energy_shift = ferOp.fermion_mode_freezing(freeze_list)
     num_spin_orbitals -= len(freeze_list)
     num_particles -= len(freeze_list)
+    # Remove the orbitals from remove_list, (i.e. orbitals with high energy)
     ferOp = ferOp.fermion_mode_elimination(remove_list)
     num_spin_orbitals -= len(remove_list)
     qubitOp = ferOp.mapping(map_type='parity', threshold=0.00000001)
@@ -55,30 +63,32 @@ def get_qubit_op_N2(dist):
     shift = energy_shift + repulsion_energy
     return qubitOp, num_particles, num_spin_orbitals, shift
 
-def get_exact_energies_N2(distances):
+def get_exact_energies_N2(distances, driver="pyquante", remove_list=[]):
     """
     :param distances: Array of distances to calculate the exact energies for
+    :param driver: String of what chemistry driver to use. Use PYSCF for Linux, and pyquante for Windows
     :return: Corresponding array of exact energies (exact for the quantum circuit perspective)
     """
     exact_energies = np.zeros(len(distances))
     for i in range(len(distances)):
         print(distances[i])
-        qubitOp, num_particles, num_spin_orbitals, shift = get_qubit_op_N2(distances[i])
+        qubitOp, num_particles, num_spin_orbitals, shift = get_qubit_op_N2(distances[i], driver, remove_list)
         result = NumPyEigensolver(qubitOp).run()
         exact_energies[i] = np.real(result.eigenvalues) + shift
         print(exact_energies[i])
     return exact_energies
 
-def get_VQE_energies_N2(distances):
+def get_VQE_energies_N2(distances, backend, driver="pyquante", remove_list=[], maxiter_optimizer=3):
     """
     :param distances: Array of distances to calculate the exact energies for
+    :param driver: String of what chemistry driver to use. Use PYSCF for Linux, and pyquante for Windowsre
     :return: Corresponding array of the VQE energies obtained using q-UCCSD
     """
     VQE_energies = np.zeros(len(distances))
     for i in range(len(distances)):
-        optimizer = SLSQP(maxiter=3)
+        optimizer = SLSQP(maxiter=maxiter_optimizer)
         print("Distance: ", distances[i])
-        qubitOp, num_particles, num_spin_orbitals, shift = get_qubit_op_N2(distances[i])
+        qubitOp, num_particles, num_spin_orbitals, shift = get_qubit_op_N2(distances[i], driver, remove_list)
         print(num_particles)
         print(num_spin_orbitals)
         print(qubitOp.num_qubits)
@@ -100,7 +110,8 @@ def get_VQE_energies_N2(distances):
         VQE_energies[i] = vqe_result
         vqe = None # Forcing the vqe object out of memory in order to avoid running out of memory
         qubitOp = None # Same as above
-        print("Sucsess")	
+        print("Sucsess")
+        print("Energy: ", VQE_energies[i])
     print("All energies have been calculated")
     return VQE_energies
 
@@ -145,27 +156,4 @@ def plot_accuracy(ccsd_energies, VQE_energies, exact_energies, distances, distan
     plt.tight_layout()
     plt.show()
 
-redo_caculations = False
-save_calcuations = False
 
-if redo_caculations:
-    distances_N2 = np.arange(1.0, 2.6, 0.1)
-    exact_energies_N2 = get_exact_energies_N2(distances_N2)
-    VQE_energies_N2 = get_VQE_energies_N2(distances_N2)
-    distances_ccsd_N2 = np.arange(1.0, 2.6, 0.2)
-    ccsd_energies_N2 = get_ccsd_energies_N2(distances_ccsd_N2, print_info=True)
-    if save_calcuations:
-        np.savetxt("data/distances_N2.csv", distances_N2, delimiter=",")
-        np.savetxt("data/exact_energies_N2.csv", exact_energies_N2, delimiter=",")
-        np.savetxt("data/VQE_energies_N2.csv", VQE_energies_N2, delimiter=",")
-        np.savetxt("data/distances_ccsd_N2.csv", distances_ccsd_N2, delimiter=",")
-        np.savetxt("data/ccsd_energies_N2.csv", ccsd_energies_N2, delimiter=",")
-else:
-    distances_N2 = np.genfromtxt("data/distances_N2.csv", delimiter=",")
-    exact_energies_N2 = np.genfromtxt("data/exact_energies_N2.csv", delimiter=",")
-    VQE_energies_N2 = np.genfromtxt("data/VQE_energies_N2.csv", delimiter=",")
-    distances_N2 = np.genfromtxt("data/distances_ccsd_N2.csv", delimiter=",")
-    ccsd_energies_N2 = np.genfromtxt("data/distances_ccsd_N2.csv", delimiter=",")
-
-print(distances_ccsd_N2)
-plot_accuracy(ccsd_energies_N2, VQE_energies_N2, exact_energies_N2, distances_N2, distances_ccsd_N2)
