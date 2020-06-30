@@ -8,10 +8,10 @@ redo_caculations = True
 save_calcuations = False
 
 if redo_caculations:
-    distances_N2 = np.arange(1.0, 2.6, 0.1)
-    exact_energies_N2 = get_exact_energies_N2(distances_N2, driver, remove_list=[])
+    distances_N2 = np.arange(1.0, 2.7, 0.1)
     VQE_energies_N2 = get_VQE_energies_N2(distances_N2, backend, driver, remove_list=[-2,-3])
-    distances_ccsd_N2 = np.arange(1.0, 2.6, 0.2)
+    exact_energies_N2 = get_exact_energies_N2(distances_N2, driver, remove_list=[-2,-3])
+    distances_ccsd_N2 = np.arange(1.0, 2.7, 0.2)
     try:
         from quantum_chem_psi4_N2 import get_ccsd_energies_N2
         ccsd_energies_N2 = get_ccsd_energies_N2(distances_ccsd_N2, print_info=True)
@@ -30,6 +30,6 @@ else:
     exact_energies_N2 = np.genfromtxt("data/exact_energies_N2.csv", delimiter=",")
     VQE_energies_N2 = np.genfromtxt("data/VQE_energies_N2.csv", delimiter=",")
     distances_ccsd_N2 = np.genfromtxt("data/distances_ccsd_N2.csv", delimiter=",")
-    ccsd_energies_N2 = np.genfromtxt("data/distances_ccsd_N2.csv", delimiter=",")
+    ccsd_energies_N2 = np.genfromtxt("data/energies_ccsd_N2.csv", delimiter=",")
 
 plot_accuracy(ccsd_energies_N2, VQE_energies_N2, exact_energies_N2, distances_N2, distances_ccsd_N2)
