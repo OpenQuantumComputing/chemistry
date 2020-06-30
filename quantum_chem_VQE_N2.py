@@ -27,15 +27,15 @@ and should be used. The speed of PYSCF is significantly much higher than PyQuant
 """
 def get_qubit_op_N2(distances, driver="pyquante", remove_list=[]):
     """
-    :param distances: Array of distances in Ångstrøm that will be simulated
+    :param distance: Distance in Ångstrøm that will be simulated
     :param driver: Specifies the chemistry driver
     :param remove_list: List of which oribtals to manually remove. [-2,-3] seems to work well.
-    :return: Array of energies of the system corresponding to the distances array.
+    :return: Energy of the system corresponding to the distance.
     """
     if driver=="pyquante":
-        driver = PyQuanteDriver(atoms="N .0 .0 .0; N .0 .0 " + str(distances), units=UnitsType.ANGSTROM, charge=0)
+        driver = PyQuanteDriver(atoms="N .0 .0 .0; N .0 .0 " + str(distance), units=UnitsType.ANGSTROM, charge=0)
     else:
-        driver = driver = PySCFDriver(atom="N .0 .0 .0; N .0 .0 " + str(distances), unit=UnitsType.ANGSTROM,
+        driver = driver = PySCFDriver(atom="N .0 .0 .0; N .0 .0 " + str(distance), unit=UnitsType.ANGSTROM,
                                       charge=0, spin=0, basis='sto3g')
     molecule = driver.run()
     freeze_list = [0, 1]
