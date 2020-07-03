@@ -237,7 +237,7 @@ def get_qubit_op_H2O(distance, driver="pyquante", remove_list=[]):
     # Remove the orbitals from remove_list, (i.e. orbitals with high energy)
     ferOp = ferOp.fermion_mode_elimination(remove_list)
     num_spin_orbitals -= len(remove_list)
-    qubitOp = ferOp.mapping(map_type='parity', threshold=0.001)
+    qubitOp = ferOp.mapping(map_type='parity', threshold=0.00000001)
     qubitOp = Z2Symmetries.two_qubit_reduction(qubitOp, num_particles)
     shift = energy_shift + repulsion_energy
     return qubitOp, num_particles, num_spin_orbitals, shift

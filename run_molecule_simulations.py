@@ -10,7 +10,7 @@ from qiskit import BasicAer
 backend = BasicAer.get_backend("statevector_simulator")
 
 # Change these variables to run different parts of the simulations
-save_calculations = False
+save_calculations = True
 redo_calculations = True
 run_N2 = True
 run_H4 = True
