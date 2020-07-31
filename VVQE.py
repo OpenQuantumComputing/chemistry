@@ -239,12 +239,12 @@ def plot_results_var_forms(alpha_list, distance, error_mean_list, std_list, exci
     ax2.legend()
     plt.show()
 
-def find_effect_of_alpha(backend, var_form, alpha_list, distance, shots=1000, driver="pyquante"):
+def find_effect_of_alpha(backend, var_form, alpha_list, distance, shots=1000, driver="pyquante", k=30):
     hamiltonian, shift = get_hamiltonian(distance, driver)
-    energy_matrix = np.zeros((4, 30))
-    std_matrix = np.zeros((4, 30))
+    energy_matrix = np.zeros((len(alpha_list), k))
+    std_matrix = np.zeros((len(alpha_list), k))
     for i in range(len(alpha_list)):
-        for j in range(2):
+        for j in range(k):
             optmize_result = minimize(cost_function, x0=np.zeros(32), method="COBYLA",
                                       args=(alpha_list[i], backend, hamiltonian, shots, 1, var_form),
                                       options={"disp": False})
@@ -260,7 +260,7 @@ def find_effect_of_alpha(backend, var_form, alpha_list, distance, shots=1000, dr
             mean = np.real(res[0])
             error = np.real(res[1])
             std = np.sqrt(shots) * error
-            print(j)
+            print(j, " alpha : ", alpha_list[i])
             print("Mean: ", mean + shift)
             print("std: ", std)
             energy_matrix[i, j] = mean
@@ -303,12 +303,29 @@ def plot_effects_of_alpha(alpha_list, energy_matrix, std_matrix, shift):
 
 
 M = 4
-alpha_list = np.linspace(0.1, 0.5, M)
+alpha_list1 = np.linspace(0.0, 0.4, M)
 
 var_form = "Full Entanglement"
 distance = 0.8
-energy_matrix, std_matrix, shift = find_effect_of_alpha(backend, var_form, alpha_list, distance, shots=1000, driver="jasf")
-plot_effects_of_alpha(alpha_list, energy_matrix, std_matrix, shift)
+energy_matrix1, std_matrix1, shift1 = find_effect_of_alpha(backend, var_form, alpha_list1, distance, shots=1000, driver="jasf", k=2)
+np.savetxt(energy_matrix1, "energy_matrix1.csv", delimiter=",")
+np.savetxt(std_matrix1, "std_matrix1.csv", delimiter=",")
+np.savetxt(alpha_list1, "alpha_list1.csv", delimiter=",")
+
+plot_effects_of_alpha(alpha_list1, energy_matrix1, std_matrix1, shift1)
+
+
+
+alpha_list2 = np.linspace(0.6, 1, M)
+
+var_form = "Full Entanglement"
+distance = 0.8
+energy_matrix2, std_matrix2, shift2 = find_effect_of_alpha(backend, var_form, alpha_list2, distance, shots=1000, driver="jasf", k=2)
+np.savetxt(energy_matrix2, "energy_matrix1.csv", delimiter=",")
+np.savetxt(std_matrix2, "std_matrix1.csv", delimiter=",")
+np.savetxt(alpha_list2, "alpha_list1.csv", delimiter=",")
+
+plot_effects_of_alpha(alpha_list2, energy_matrix2, std_matrix2, shift2)
 
 var_forms = ["Full Entanglement", "Linear Entanglement"]
 
