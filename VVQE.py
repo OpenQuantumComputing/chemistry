@@ -5,7 +5,6 @@ from qiskit.chemistry import FermionicOperator
 from qiskit import BasicAer, Aer, execute
 from qiskit.aqua.algorithms import  NumPyEigensolver
 from scipy.optimize import minimize
-from qiskit.aqua.operators import Z2Symmetries
 
 
 from qiskit.chemistry.components.variational_forms import UCCSD
@@ -24,13 +23,19 @@ newparams = {'figure.figsize': (10, 7), 'axes.grid': False,
              'font.family': 'STIXGeneral', 'figure.dpi': 200}
 plt.rcParams.update(newparams)
 
-
-
+# Atomic repulsion energy. In Hartree
+SHIFT = 0.66147151365
 
 #backend = Aer.get_backend("statevector_simulator")
 backend = Aer.get_backend("qasm_simulator")
 
 def create_VQE_circuit_RyRz_full_entangle_H2(params, depth=1):
+    """
+    Variational form where the number of CNots scales quadratic with number of qubits
+    :param params: Array of 8 + 3 * 8 * depth elements
+    :param depth:
+    :return: quantum_circuit, quantum_register, classical_register of RyRz circuit
+    """
     q = QuantumRegister(4)
     c = ClassicalRegister(4)
     qc = QuantumCircuit(q, c)
@@ -61,6 +66,12 @@ def create_VQE_circuit_RyRz_full_entangle_H2(params, depth=1):
 
 
 def create_VQE_circuit_RyRz_linear_entangle_H2(params, depth=1):
+    """
+    Variational form where the number of CNots scales linearly with number of qubits
+    :param params: Array of 8 + 3 * 8 * depth elements
+    :param depth:
+    :return: quantum_circuit, quantum_register, classical_register of RyRz circuit
+    """
     q = QuantumRegister(4)
     c = ClassicalRegister(4)
     qc = QuantumCircuit(q,c)
@@ -100,52 +111,16 @@ def get_hamiltonian(distance, driver="pyquante"):
     h = FermionicOperator(one_body, two_body)
     h = h.mapping("jordan_wigner")
     shift = molecule.nuclear_repulsion_energy
-    #h = Z2Symmetries.two_qubit_reduction(h, molecule.num_alpha + molecule.num_beta)
     return h, shift
 
 
-def get_qubit_op_H2(distance, driver="pyquante"):
-    """
-    :param angle: Angle of between pairs of Hydrogen atoms, placed on a circle
-    :param driver: String of what chemistry driver to use. Use PYSCF for Linux, and pyquante for Windows
-    :return: Energy of the system corresponding to the angle
-    """
-    if driver=="pyquante":
-        driver = PyQuanteDriver(atoms="H .0 .0 .0; H .0 .0 " + str(distance), units=UnitsType.ANGSTROM, charge=0)
-    else:
-        driver = PySCFDriver(atom="H .0 .0 .0; H .0 .0 " + str(distance), unit=UnitsType.ANGSTROM,
-                             charge=0, spin=0, basis='sto3g')
-    molecule = driver.run()
-    num_particles = molecule.num_alpha + molecule.num_beta
-    num_spin_orbitals = molecule.num_orbitals * 2
-    ferOp = FermionicOperator(h1=molecule.one_body_integrals, h2=molecule.two_body_integrals)
-    qubitOp = ferOp.mapping(map_type='parity', threshold=0.00000001)
-    #qubitOp = Z2Symmetries.two_qubit_reduction(qubitOp, num_particles)
-    shift = molecule.nuclear_repulsion_energy
-    return qubitOp, num_particles, num_spin_orbitals, shift
-
-def get_VQE_UCCSD_circuit_H2(distance, parameters, driver="pyquante"):
-    qubitOp, num_particles, num_spin_orbitals, shift = get_qubit_op_H2(distance, driver)
-    initial_state = HartreeFock(
-        num_spin_orbitals,
-        num_particles,
-        qubit_mapping='parity'
-    )
-    var_form = UCCSD(
-        num_orbitals=num_spin_orbitals,
-        num_particles=num_particles,
-        initial_state=initial_state,
-        qubit_mapping='parity',
-        two_qubit_reduction=False
-    )
-    qc, q, c = var_form.construct_circuit(parameters)
-    return qc, q, c
 
 def cost_function(params, alpha, backend, hamiltonian, shots=1000, depth=1, var_form="Full Entanglement"):
     if var_form=="Full Entanglement":
         qc, q, c = create_VQE_circuit_RyRz_full_entangle_H2(params, depth)
-    elif var_form=="UCCSD":
-        qc, q, c = get_VQE_UCCSD_circuit_H2(distance, params)
+    # Implementation of q-UCCSD is a work in progress
+    #elif var_form=="UCCSD":
+    #    qc, q, c = get_VQE_UCCSD_circuit_H2(distance, params)
     else:
         qc, q, c = create_VQE_circuit_RyRz_linear_entangle_H2(params, depth)
     eval_circ_list = hamiltonian.construct_evaluation_circuit(wave_function=qc, statevector_mode=False, qr=q, cr=c)
@@ -153,6 +128,7 @@ def cost_function(params, alpha, backend, hamiltonian, shots=1000, depth=1, var_
     result = job.result()
     res = hamiltonian.evaluate_with_result(result=result, statevector_mode=False)
     mean = np.real(res[0])
+    # res[1] is divided by sqrt(shots), thus the true variance must be scaled back
     std = np.real(res[1]) * np.sqrt(shots)
     return (1 - alpha) * mean + alpha * std
 
@@ -163,8 +139,8 @@ def find_optimal_params(method, init_params, alpha, hamiltonian, shots, depth=1,
     opt_params = optmize_result.x
     if var_form=="Full Entanglement":
         qc, q, c = create_VQE_circuit_RyRz_full_entangle_H2(opt_params, depth)
-    elif var_form=="UCCSD":
-        qc, q, c = get_VQE_UCCSD_circuit_H2(distance, opt_params)
+    #elif var_form=="UCCSD":
+    #    qc, q, c = get_VQE_UCCSD_circuit_H2(distance, opt_params)
     elif var_form=="Linear Entanglement":
         qc, q, c = create_VQE_circuit_RyRz_linear_entangle_H2(opt_params, depth)
     eval_circ_list = hamiltonian.construct_evaluation_circuit(wave_function=qc, statevector_mode=False, qr=q, cr=c)
@@ -176,17 +152,29 @@ def find_optimal_params(method, init_params, alpha, hamiltonian, shots, depth=1,
     return mean, error*np.sqrt(shots)
 
 def simulate_variational_forms(alpha_list, distance, var_forms=["Full Entanglement", "UCCSD", "Linear Entanglement"], driver="pyquante"):
-    M = len(alpha_list)
+    """
 
+    :param alpha_list: Array of alphas to simulate. M values
+    :param distance:
+    :param var_forms: Array of strings that specify the variational form to use. N values
+    :param driver:
+    :return: error_mean_matrix: (N,M) matrix. Each element is the deviance between the deviance between the calculated
+            energy for a unique pair of var_form and alpha and the closest exact eigenenergy.
+            std_matrix : (N, M) matrix. Each element is the standard deviance for a unique pair of var_form and alpha
+            resulting from calculating the energy.
+            excited_states_matrix: (N, M) matrix. Specifies which eigenenergy that is closest to the calculated energy
+            for a unique alpha, var_form pair.
+    """
+    M = len(alpha_list)
+    N = len(var_forms)
     h, shift = get_hamiltonian(distance, driver)
-    result = NumPyEigensolver(h, k=9).run()
+    result = NumPyEigensolver(h, k=9).run() # calculates k lowest eigengvalues
     energy_spectrum = np.real(result.eigenvalues)
     print(energy_spectrum + shift)
-
-    error_mean_list = np.zeros((3,M))
-    std_list = np.zeros((3,M))
-    excited_states = np.zeros((3, M), dtype=np.int)
-    for i in range(len(var_forms)):
+    error_mean_matrix = np.zeros((N, M))
+    std_matrix = np.zeros((N, M))
+    excited_states_matrix = np.zeros((N, M), dtype=np.int)
+    for i in range(N):
         var_form = var_forms[i]
         print(var_form)
         if var_form=="UCCSD":
@@ -196,7 +184,7 @@ def simulate_variational_forms(alpha_list, distance, var_forms=["Full Entangleme
         for j in range(len(alpha_list)):
             print("Simulation number: ", j +1)
             mean, std = find_optimal_params("COBYLA", init_params, alpha_list[j], h, 1000, 1, var_form)
-            print("Mean: ", mean + shift)
+            print("Mean: ", mean + shift) # Adding the shift for convenience
             print("STD: ", std)
             print()
             temp_rec = 1000
@@ -205,11 +193,11 @@ def simulate_variational_forms(alpha_list, distance, var_forms=["Full Entangleme
                 if np.abs(energy_spectrum[k] - mean) < temp_rec:
                     temp_rec = np.abs(energy_spectrum[k] - mean)
                     index = k
-            error_mean_list[i,j] = temp_rec
-            std_list[i,j] = std
-            excited_states[i,j] = index
-    error_mean_list = np.abs(error_mean_list)
-    return error_mean_list, std_list, excited_states
+            error_mean_matrix[i,j] = temp_rec
+            std_matrix[i,j] = std
+            excited_states_matrix[i,j] = index
+    error_mean_matrix = np.abs(error_mean_matrix)
+    return error_mean_matrix, std_matrix, excited_states_matrix
 
 def plot_results_var_forms(alpha_list, distance, error_mean_list, std_list, excited_states, var_forms = ["Full Entanglement", "UCCSD", "Linear Entanglement"]):
     cmap = plt.get_cmap('gnuplot')
@@ -303,31 +291,35 @@ def plot_effects_of_alpha(alpha_list, energy_matrix, std_matrix, shift):
 
 
 M = 4
-alpha_list1 = np.linspace(0.0, 0.4, M)
-
-var_form = "Full Entanglement"
 distance = 0.8
-energy_matrix1, std_matrix1, shift1 = find_effect_of_alpha(backend, var_form, alpha_list1, distance, shots=1000, driver="jasf", k=2)
-np.savetxt(energy_matrix1, "energy_matrix1.csv", delimiter=",")
-np.savetxt(std_matrix1, "std_matrix1.csv", delimiter=",")
-np.savetxt(alpha_list1, "alpha_list1.csv", delimiter=",")
 
-plot_effects_of_alpha(alpha_list1, energy_matrix1, std_matrix1, shift1)
-
-
-
-alpha_list2 = np.linspace(0.6, 1, M)
-
-var_form = "Full Entanglement"
-distance = 0.8
-energy_matrix2, std_matrix2, shift2 = find_effect_of_alpha(backend, var_form, alpha_list2, distance, shots=1000, driver="jasf", k=2)
-np.savetxt(energy_matrix2, "energy_matrix1.csv", delimiter=",")
-np.savetxt(std_matrix2, "std_matrix1.csv", delimiter=",")
-np.savetxt(alpha_list2, "alpha_list1.csv", delimiter=",")
-
-plot_effects_of_alpha(alpha_list2, energy_matrix2, std_matrix2, shift2)
-
-var_forms = ["Full Entanglement", "Linear Entanglement"]
-
+#var_forms = ["Full Entanglement", "Linear Entanglement"]
 #error_mean_list, std_list, excited_states = simulate_variational_forms(alpha_list, distance, var_forms)
 #plot_results_var_forms(alpha_list, distance, error_mean_list, std_list, excited_states, var_forms)
+
+# Full entanglement, small alphas
+alpha_list1 = np.genfromtxt("data_VVQE/alpha_list1.csv", delimiter=",")
+energy_matrix1 = np.genfromtxt("data_VVQE/energy_matrix1.csv", delimiter=",")
+std_matrix1 = np.genfromtxt("data_VVQE/std_matrix1.csv", delimiter=",")
+
+# Full entanglement, larger alphas
+alpha_list2 = np.genfromtxt("data_VVQE/alpha_list2.csv", delimiter=",")
+energy_matrix2 = np.genfromtxt("data_VVQE/energy_matrix2.csv", delimiter=",")
+std_matrix2 = np.genfromtxt("data_VVQE/std_matrix2.csv", delimiter=",")
+
+# Linear entanglement, smaller alphas
+alpha_list3 = np.genfromtxt("data_VVQE/alpha_list3.csv", delimiter=",")
+energy_matrix3 = np.genfromtxt("data_VVQE/energy_matrix3.csv", delimiter=",")
+std_matrix3 = np.genfromtxt("data_VVQE/std_matrix3.csv", delimiter=",")
+
+# Linear entanglement, larger alphas
+alpha_list4 = np.genfromtxt("data_VVQE/alpha_list4.csv", delimiter=",")
+energy_matrix4 = np.genfromtxt("data_VVQE/energy_matrix4.csv", delimiter=",")
+std_matrix4 = np.genfromtxt("data_VVQE/std_matrix4.csv", delimiter=",")
+
+plot_effects_of_alpha(alpha_list1, energy_matrix1, std_matrix1, SHIFT)
+plot_effects_of_alpha(alpha_list2, energy_matrix2, std_matrix2, SHIFT)
+plot_effects_of_alpha(alpha_list3, energy_matrix3, std_matrix3, SHIFT)
+plot_effects_of_alpha(alpha_list4, energy_matrix4, std_matrix4, SHIFT)
+
+
