@@ -23,13 +23,35 @@ newparams = {'figure.figsize': (10, 7), 'axes.grid': False,
              'font.family': 'STIXGeneral', 'figure.dpi': 200}
 plt.rcParams.update(newparams)
 
+
+
+"""
+HEA- Hardware efficient ansatze
+TODO
+- Implement more variational forms
+- Implement more entanglers
+- Implement/explore more initial states
+- Explore more around initial params in parameter space
+
+"""
 # Atomic repulsion energy. In Hartree
 SHIFT = 0.66147151365
 
 #backend = Aer.get_backend("statevector_simulator")
 backend = Aer.get_backend("qasm_simulator")
 
-def create_VQE_circuit_RyRz_full_entangle_H2(params, depth=1):
+def linear_entangler(qc, N):
+    qc.cx(0, 1)
+    for i in range(1, N - 1):
+        qc.cx(i, i + 1)
+
+def full_entangler(qc, N):
+    for i in range(N - 1):
+        for j in range(i + 1, N):
+            qc.cx(i, j)
+
+
+def create_VQE_circuit_RyRz_H2(params, entangler, depth=1):
     """
     Variational form where the number of CNots scales quadratic with number of qubits
     :param params: Array of 8 + 3 * 8 * depth elements
@@ -50,12 +72,7 @@ def create_VQE_circuit_RyRz_full_entangle_H2(params, depth=1):
             for j in range(4):
                 qc.rz(params[counter], j)
                 counter += 1
-            qc.cx(0, 1)
-            qc.cx(0, 2)
-            qc.cx(0, 3)
-            qc.cx(1, 2)
-            qc.cx(1, 3)
-            qc.cx(2, 3)
+            entangler(qc, 4)
     for j in range(4):
         qc.ry(params[counter], j)
         counter += 1
@@ -64,37 +81,20 @@ def create_VQE_circuit_RyRz_full_entangle_H2(params, depth=1):
         counter += 1
     return qc, q, c
 
-
-def create_VQE_circuit_RyRz_linear_entangle_H2(params, depth=1):
-    """
-    Variational form where the number of CNots scales linearly with number of qubits
-    :param params: Array of 8 + 3 * 8 * depth elements
-    :param depth:
-    :return: quantum_circuit, quantum_register, classical_register of RyRz circuit
-    """
+def create_VQE_circuit_super_cond_H2(params, entangler, depth=1):
     q = QuantumRegister(4)
     c = ClassicalRegister(4)
     qc = QuantumCircuit(q,c)
-    qc.x(0)
-    qc.x(1)
-    counter = 0
-    for d in range(depth):
-        for k in range(3):
-            for j in range(4):
-                qc.ry(params[counter], j)
-                counter += 1
-            for j in range(4):
-                qc.rz(params[counter], j)
-                counter += 1
-            qc.cx(0, 1)
-            qc.cx(1, 2)
-            qc.cx(2, 3)
-    for j in range(4):
-        qc.ry(params[counter], j)
-        counter += 1
-    for j in range(4):
-        qc.rz(params[counter], j)
-        counter += 1
+    for i in range(4):
+        qc.rx(params[2*i], i)
+        qc.rz(params[2 * (i + 1)], i)
+    for j in range(1, depth):
+        entangler(qc, 4)
+        theta_vec = params[2:2 + 3*j]
+        for i in range(4):
+            qc.rz(theta_vec[0])
+            qc.rx(theta_vec[1])
+            qc.rz(theta_vec[2])
     return qc, q, c
 
 def get_hamiltonian(distance, driver="pyquante"):
@@ -102,7 +102,7 @@ def get_hamiltonian(distance, driver="pyquante"):
         driver = PyQuanteDriver(atoms="H .0 .0 .0; H .0 .0 " + str(distance), units=UnitsType.ANGSTROM, charge=0)
     else:
         driver = PySCFDriver(atom="H .0 .0 .0; H .0 .0 " + str(distance), unit=UnitsType.ANGSTROM,
-                             charge=0, spin=0, basis='sto3g')
+                             charge=0, spin=0, basis='sto6g')
     molecule = driver.run()
 
     one_body = molecule.one_body_integrals
@@ -115,14 +115,17 @@ def get_hamiltonian(distance, driver="pyquante"):
 
 
 
-def cost_function(params, alpha, backend, hamiltonian, shots=1000, depth=1, var_form="Full Entanglement"):
-    if var_form=="Full Entanglement":
-        qc, q, c = create_VQE_circuit_RyRz_full_entangle_H2(params, depth)
+def cost_function(params, alpha, backend, hamiltonian, shots=1000, depth=1, var_form="RyRz", entangler=linear_entangler):
+    if var_form=="RyRz":
+        qc, q, c = create_VQE_circuit_RyRz_H2(params, entangler, depth)
     # Implementation of q-UCCSD is a work in progress
     #elif var_form=="UCCSD":
     #    qc, q, c = get_VQE_UCCSD_circuit_H2(distance, params)
+    elif var_form =="SC":
+        qc, q, c = create_VQE_circuit_super_cond_H2(params, entangler, depth)
     else:
-        qc, q, c = create_VQE_circuit_RyRz_linear_entangle_H2(params, depth)
+        print("WARNING: Could not find var_form instructions, using RyRz instead")
+        qc, q, c = create_VQE_circuit_RyRz_H2(params, entangler, depth)
     eval_circ_list = hamiltonian.construct_evaluation_circuit(wave_function=qc, statevector_mode=False, qr=q, cr=c)
     job = execute(eval_circ_list, backend, shots=shots)
     result = job.result()
@@ -133,16 +136,16 @@ def cost_function(params, alpha, backend, hamiltonian, shots=1000, depth=1, var_
     return (1 - alpha) * mean + alpha * std
 
 
-def find_optimal_params(method, init_params, alpha, hamiltonian, shots, depth=1, var_form="Full Entanglement"):
+def find_optimal_params(method, init_params, alpha, hamiltonian, shots, depth=1, var_form="RyRz", entangler=linear_entangler):
     optmize_result = minimize(cost_function, x0=init_params, method=method,
-                              args=(alpha, backend, hamiltonian, shots, depth, var_form), options={"disp": False})#,"maxiter": 10})
+                              args=(alpha, backend, hamiltonian, shots, depth, var_form, entangler), options={"disp": False})#,"maxiter": 10})
     opt_params = optmize_result.x
-    if var_form=="Full Entanglement":
-        qc, q, c = create_VQE_circuit_RyRz_full_entangle_H2(opt_params, depth)
+    if var_form=="RyRz":
+        qc, q, c = create_VQE_circuit_RyRz_H2(opt_params,entangler, depth)
+    elif var_form=="SC":
+        qc, q, c = create_VQE_circuit_super_cond_H2(opt_params, entangler, depth)
     #elif var_form=="UCCSD":
     #    qc, q, c = get_VQE_UCCSD_circuit_H2(distance, opt_params)
-    elif var_form=="Linear Entanglement":
-        qc, q, c = create_VQE_circuit_RyRz_linear_entangle_H2(opt_params, depth)
     eval_circ_list = hamiltonian.construct_evaluation_circuit(wave_function=qc, statevector_mode=False, qr=q, cr=c)
     job = execute(eval_circ_list, backend, shots=shots)
     result = job.result()
@@ -151,9 +154,9 @@ def find_optimal_params(method, init_params, alpha, hamiltonian, shots, depth=1,
     error = np.real(res[1])
     return mean, error*np.sqrt(shots)
 
-def simulate_variational_forms(alpha_list, distance, var_forms=["Full Entanglement", "UCCSD", "Linear Entanglement"], driver="pyquante"):
+def simulate_variational_forms(alpha_list, distance, depth=1, var_forms=["RyRz"]
+                               , entangler=linear_entangler, driver="pyquante"):
     """
-
     :param alpha_list: Array of alphas to simulate. M values
     :param distance:
     :param var_forms: Array of strings that specify the variational form to use. N values
@@ -180,10 +183,10 @@ def simulate_variational_forms(alpha_list, distance, var_forms=["Full Entangleme
         if var_form=="UCCSD":
             init_params = np.ones(3)
         else:
-            init_params = np.ones(32)
+            init_params = np.ones(32 * depth)
         for j in range(len(alpha_list)):
-            print("Simulation number: ", j +1)
-            mean, std = find_optimal_params("COBYLA", init_params, alpha_list[j], h, 1000, 1, var_form)
+            print("Simulation number: ", j +1, ", \t alpha = ", alpha_list[j])
+            mean, std = find_optimal_params("COBYLA", init_params, alpha_list[j], h, 1000, depth, var_form, entangler)
             print("Mean: ", mean + shift) # Adding the shift for convenience
             print("STD: ", std)
             print()
@@ -199,7 +202,8 @@ def simulate_variational_forms(alpha_list, distance, var_forms=["Full Entangleme
     error_mean_matrix = np.abs(error_mean_matrix)
     return error_mean_matrix, std_matrix, excited_states_matrix
 
-def plot_results_var_forms(alpha_list, distance, error_mean_list, std_list, excited_states, var_forms = ["Full Entanglement", "UCCSD", "Linear Entanglement"]):
+def plot_results_var_forms(alpha_list, distance, error_mean_list, std_list, excited_states,
+                           var_forms = ["RyRz"]):
     cmap = plt.get_cmap('gnuplot')
     colors = [cmap(i) for i in np.linspace(0, 1, 9)]
     M = len(alpha_list)
@@ -227,20 +231,20 @@ def plot_results_var_forms(alpha_list, distance, error_mean_list, std_list, exci
     ax2.legend()
     plt.show()
 
-def find_effect_of_alpha(backend, var_form, alpha_list, distance, shots=1000, driver="pyquante", k=30):
+def find_effect_of_alpha(backend, var_form, alpha_list, distance, shots=1000, driver="pyquante", entangler=linear_entangler, k=30):
     hamiltonian, shift = get_hamiltonian(distance, driver)
     energy_matrix = np.zeros((len(alpha_list), k))
     std_matrix = np.zeros((len(alpha_list), k))
     for i in range(len(alpha_list)):
         for j in range(k):
             optmize_result = minimize(cost_function, x0=np.zeros(32), method="COBYLA",
-                                      args=(alpha_list[i], backend, hamiltonian, shots, 1, var_form),
-                                      options={"disp": False})
+                                      args=(alpha_list[i], backend, hamiltonian, shots, 1, var_form, entangler),
+                                      options={"disp": False, "maxiter":1})
             opt_params = optmize_result.x
             if var_form == "Full Entanglement":
-                qc, q, c = create_VQE_circuit_RyRz_full_entangle_H2(opt_params, 1)
+                qc, q, c = create_VQE_circuit_RyRz_H2(opt_params, 1)
             elif var_form == "Linear Entanglement":
-                qc, q, c = create_VQE_circuit_RyRz_linear_entangle_H2(opt_params, 1)
+                qc, q, c = create_VQE_circuit_RyRz_H2(opt_params, 1)
             eval_circ_list = hamiltonian.construct_evaluation_circuit(wave_function=qc, statevector_mode=False, qr=q, cr=c)
             job = execute(eval_circ_list, backend, shots=shots)
             result = job.result()
@@ -268,8 +272,8 @@ def plot_effects_of_alpha(alpha_list, energy_matrix, std_matrix, shift):
         maxfreq = n.max()
         ax[i].set_ylim(ymax=np.ceil(maxfreq / 10) * 10 if maxfreq % 10 else maxfreq + 10)
         ax[i].axvline(np.mean(energy_matrix[i]+ shift), 0, maxfreq, color="k")
-
-        n, bins, patches = bx[i].hist(x=std_matrix[i], bins='auto', color='#0504aa',
+        print(np.amax(std_matrix))
+        n, bins, patches = bx[i].hist(x=std_matrix[i], bins="auto", color='#0504aa',
                                     alpha=0.7, rwidth=0.85)
         bx[i].set_ylabel('Frequency')
         bx[i].set_title(r"$\alpha = $ %0.2f" % alpha_list[i])
@@ -290,6 +294,8 @@ def plot_effects_of_alpha(alpha_list, energy_matrix, std_matrix, shift):
     plt.show()
 
 
+
+"""
 M = 4
 distance = 0.8
 
@@ -321,5 +327,4 @@ plot_effects_of_alpha(alpha_list1, energy_matrix1, std_matrix1, SHIFT)
 plot_effects_of_alpha(alpha_list2, energy_matrix2, std_matrix2, SHIFT)
 plot_effects_of_alpha(alpha_list3, energy_matrix3, std_matrix3, SHIFT)
 plot_effects_of_alpha(alpha_list4, energy_matrix4, std_matrix4, SHIFT)
-
 
