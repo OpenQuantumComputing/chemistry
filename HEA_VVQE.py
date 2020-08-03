@@ -239,12 +239,15 @@ def find_effect_of_alpha(backend, var_form, alpha_list, distance, shots=1000, dr
         for j in range(k):
             optmize_result = minimize(cost_function, x0=np.zeros(32), method="COBYLA",
                                       args=(alpha_list[i], backend, hamiltonian, shots, 1, var_form, entangler),
-                                      options={"disp": False, "maxiter":1})
+                                      options={"disp": False,}) #"maxiter":1})
             opt_params = optmize_result.x
-            if var_form == "Full Entanglement":
-                qc, q, c = create_VQE_circuit_RyRz_H2(opt_params, 1)
-            elif var_form == "Linear Entanglement":
-                qc, q, c = create_VQE_circuit_RyRz_H2(opt_params, 1)
+            if var_form == "RyRz":
+                qc, q, c = create_VQE_circuit_RyRz_H2(opt_params, entangler, 1)
+            elif var_form == "SC":
+                qc, q, c = create_VQE_circuit_super_cond_H2(opt_params, entangler, 1)
+            else:
+                print("WARNING: Could not find var_form instructions, using RyRz instead")
+                qc, q, c = create_VQE_circuit_RyRz_H2(opt_params, entangler, 1)
             eval_circ_list = hamiltonian.construct_evaluation_circuit(wave_function=qc, statevector_mode=False, qr=q, cr=c)
             job = execute(eval_circ_list, backend, shots=shots)
             result = job.result()
