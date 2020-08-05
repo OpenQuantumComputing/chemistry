@@ -40,20 +40,26 @@ SHIFT = 0.66147151365
 #backend = Aer.get_backend("statevector_simulator")
 #backend = Aer.get_backend("qasm_simulator")
 
-def linear(qc, N):
+
+def linear(qc, N, theta_vec):
     qc.cx(0, 1)
     for i in range(1, N - 1):
         qc.cx(i, i + 1)
 
-def full(qc, N):
+def full(qc, N, theta_vec):
     for i in range(N - 1):
         for j in range(i + 1, N):
             qc.cx(i, j)
 
+def particle_conservation_entanglement(qc, N, theta_vec):
+    for i in range(N - 1):
+        qc.cu3(theta=2*theta_vec[i], lam=np.pi, phi=0, control_qubit=i, target_qubit=i+1)
+
 def create_VQE_circuit_RyRz(params, entangler,N ,depth=1):
     """
     Simple variational form described by qiskit
-    :param params: Array of 2 * N^2 * depth
+    :param params: Array of 2 * N * (depth + 1) elements,
+    and (N - 1) * depth additional elements if the entangler is particle_conserv
     :param entangler: entangler function that takes a Quantum circuit and number of qubits as input
     :param N: #qubits
     :param depth:
@@ -65,15 +71,16 @@ def create_VQE_circuit_RyRz(params, entangler,N ,depth=1):
     qc.x(0)
     qc.x(1)
     counter = 0
+    entangler_counter = 0
     for d in range(depth):
-        for k in range(N-1):
-            for j in range(N):
-                qc.ry(params[counter], j)
-                counter += 1
-            for j in range(N):
-                qc.rz(params[counter], j)
-                counter += 1
-            entangler(qc, N)
+        for j in range(N):
+            qc.ry(params[counter], j)
+            counter += 1
+        for j in range(N):
+            qc.rz(params[counter], j)
+            counter += 1
+        entangler(qc, N, theta_vec=params[-1 - entangler_counter:-1 - entangler_counter - 3:-1])
+        entangler_counter += N - 1
     for j in range(N):
         qc.ry(params[counter], j)
         counter += 1
@@ -85,7 +92,7 @@ def create_VQE_circuit_RyRz(params, entangler,N ,depth=1):
 def create_VQE_circuit_SC(params, entangler, N, depth=1):
     """
     Simple variational form described by Kandala et al. working well with IBM's real quantum computers
-    :param params: Array of N * (3 * depth + 2) elements
+    :param params: Array of N * (3 * depth + 2) elements and (N - 1) * depth additional elements if the entangler is particle_conserv
     :param entangler: entangler function that takes a Quantum circuit and number of qubits as input
     :param N: #qubits
     :param depth:
@@ -96,18 +103,23 @@ def create_VQE_circuit_SC(params, entangler, N, depth=1):
     qc = QuantumCircuit(q,c)
     qc.x(0)
     qc.x(1)
+    entangler_counter = 0
+    counter = 0
     for i in range(N):
         qc.rx(params[2*i], i)
-        qc.rz(params[2 * (i + 1)], i)
+        qc.rz(params[2 * i + 1], i)
+    counter += 2 * N
     for j in range(depth):
-        entangler(qc, N)
-        theta_vec = params[2*N + 3*j :2*N + 3*(j+1)]
-        print(theta_vec)
+        entangler(qc, N, theta_vec=params[-1 - entangler_counter:-1 - entangler_counter - 3:-1])
+        entangler_counter += N-1
         for i in range(N):
+            theta_vec = params[counter:counter + 3]
             qc.rz(theta_vec[0], i)
             qc.rx(theta_vec[1], i)
             qc.rz(theta_vec[2], i)
+            counter +=3
     return qc, q, c
+
 
 
 def get_hamiltonian_H2(distance, driver="pyquante"):
@@ -288,7 +300,7 @@ def find_effect_of_alpha(backend, alpha_list, hamiltonian, init_params, depth=1,
             mean = np.real(res[0])
             error = np.real(res[1])
             std = np.sqrt(shots) * error
-            print(j, " alpha : ", alpha_list[i])
+            print(j + 1, " alpha : ", alpha_list[i])
             print("Mean: ", mean)
             print("std: ", std)
             energy_matrix[i, j] = mean
@@ -296,31 +308,33 @@ def find_effect_of_alpha(backend, alpha_list, hamiltonian, init_params, depth=1,
     return energy_matrix, std_matrix
 
 
-def plot_effects_of_alpha(alpha_list, energy_matrix, std_matrix, sup_title=""):
-    fig, ax = plt.subplots(len(alpha_list), 1, sharex=True)
-    big, bx = plt.subplots(len(alpha_list), 1, sharex=True)
+def plot_effects_of_alpha(alpha_list, energy_matrix, std_matrix, sup_title="", E_0=0):
+    fig, ax = plt.subplots(len(alpha_list), 1, sharex=True, sharey=True)
+    big, bx = plt.subplots(len(alpha_list), 1, sharex=True, sharey=True)
     for i in range(np.shape(energy_matrix)[0]):
         n, bins, patches = ax[i].hist(x=energy_matrix[i], bins='auto', color='#0504aa',
-                                    alpha=0.5, rwidth=0.85)
+                                      alpha=0.5, rwidth=0.85)
         ax[i].set_title(r"$\alpha = $ %0.2f" % alpha_list[i])
         ax[i].set_ylabel('Freq.')
         maxfreq = n.max()
-        ax[i].set_ylim(ymax=np.ceil(maxfreq / 10) * 10 if maxfreq % 10 else maxfreq + 10)
         ax[i].axvline(np.mean(energy_matrix[i]), 0, maxfreq, color="k")
+        ax[i].axvline(np.amin(energy_matrix[i]), 0, maxfreq, linestyle="--", color="r")
+        if E_0 != 0:
+            ax[i].axvline(E_0, 0, maxfreq, color="b", linestyle="--")
         n, bins, patches = bx[i].hist(x=std_matrix[i], bins="auto", color='#0504aa',
                                     alpha=0.7, rwidth=0.85)
         bx[i].set_ylabel('Frequency')
         bx[i].set_title(r"$\alpha = $ %0.2f" % alpha_list[i])
         bx[i].axvline(np.mean(std_matrix[i]), 0, maxfreq, color="k")
-        maxfreq_std = n.max()
-        # Set a clean upper y-axis limit.
-        bx[i].set_ylim(ymax=np.ceil(maxfreq_std / 10) * 10 if maxfreq_std % 10 else maxfreq_std + 10)
+
     ax[-1].set_xlabel(r'$\mu$')
     bx[-1].set_xlabel(r"$\sigma$")
 
     ax[-1].axvline(np.mean(energy_matrix[-1]), 0, maxfreq, color="k", label="Mean")
     bx[-1].axvline(np.mean(std_matrix[-1]), 0, maxfreq, color="k", label="Mean")
-
+    ax[-1].axvline(np.amin(energy_matrix[-1]), 0, maxfreq, linestyle="--", color="r", label="Min")
+    if E_0 != 0:
+        ax[-1].axvline(E_0, 0, maxfreq, color="b", linestyle="--", label="Exact $E_0$")
     fig.legend()
     big.legend()
     fig.tight_layout()
@@ -333,25 +347,14 @@ def plot_effects_of_alpha(alpha_list, energy_matrix, std_matrix, sup_title=""):
     plt.show()
 
 """
+alpha_list_small = np.genfromtxt("data_VVQE/alpha_list_SC_linear_small_alpha.csv", delimiter=",")
+alpha_list_big = np.genfromtxt("data_VVQE/alpha_list2_SC_linear_big_alpha.csv", delimiter=",")
+energy_matrix1 = np.genfromtxt("data_VVQE/energy_matrix_RyRz_full_small_alpha.csv", delimiter=",")
+energy_matrix2 = np.genfromtxt("data_VVQE/energy_matrix_RyRz_linear_small_alpha.csv", delimiter=",")
+std_matrix1 = np.genfromtxt("data_VVQE/std_matrix_RyRz_full_small_alpha.csv", delimiter=",")
+std_matrix2 = np.genfromtxt("data_VVQE/std_matrix_RyRz_linear_small_alpha.csv", delimiter=",")
 # Build noise model from backend properties
 provider = IBMQ.load_account()
 backend = provider.get_backend('ibmqx2')
 #noise_model = NoiseModel.from_backend(backend)
-alpha_list = np.linspace(0, 1, 4)
-hamiltonian, shift = get_hamiltonian_H2(0.8, "sa")
-init_params= np.ones(32)
-var_form_entangler_list = [{"var_form":"RyRz", "entangler":linear}]
-error_mean_matrix, std_matrix, excited_states_matrix = simulate_variational_forms(backend, alpha_list, hamiltonian, init_params, depth=1, shots=1000,
-                                                                                  var_form_entangler_list=var_form_entangler_list,
-                                                                                  cost_function=cost_function_alpha, noise_model=None, method="SLSQP")
-plot_results_var_forms(alpha_list, 0.8, error_mean_matrix, std_matrix, excited_states_matrix,
-                       var_form_entangler_list=var_form_entangler_list)
-alpha_list = np.linspace(0, 0.5, 4)
-hamiltonian, shift = get_hamiltonian_H2(0.8, "sa")
-init_params= np.zeros(32)
-#backend = Aer.get_backend("qasm_simulator")
-energy_matrix, std_matrix = find_effect_of_alpha(backend, alpha_list, hamiltonian, init_params, depth=1, shots=1000,
-                               var_form="SC", entangler=linear,
-                               cost_function=cost_function_alpha, noise_model=None, method="COBYLA", k=2)
-plot_effects_of_alpha(alpha_list, energy_matrix, std_matrix, "Var. form: SC, Entangler: linear")
 """
