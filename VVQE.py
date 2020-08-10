@@ -24,7 +24,6 @@ newparams = {'figure.figsize': (10, 7), 'axes.grid': False,
 plt.rcParams.update(newparams)
 
 
-
 def linear(qc, N, theta_vec):
     qc.cx(0, 1)
     for i in range(1, N - 1):
@@ -72,6 +71,7 @@ def create_VQE_circuit_RyRz(params, entangler,N ,depth=1, m=1, use_HF_initial=Fa
     else:
         for j in range(m):
             qc.x(m)
+    qc.barrier(q)
     counter = 0
     entangler_counter = 0
     for d in range(depth):
@@ -112,6 +112,7 @@ def create_VQE_circuit_SC(params, entangler, N, depth=1, m=2, use_HF_initial=Fal
     else:
         for j in range(m):
             qc.x(m)
+    qc.barrier(q)
     entangler_counter = 0
     counter = 0
     for i in range(N):
@@ -163,6 +164,7 @@ def create_VQE_circuit_UCCSD(params, N, use_HF_initial=False):
     else:
         for j in range(2):
             circ.x(2)
+    circ.barrier(qreg)
     # enumerate all Nq > s > r > q > p >= 0 and apply Double Excitation Operator
     for s in range(N):
       for r in range(s):
@@ -216,6 +218,28 @@ def cost_function_alpha(params, alpha, backend, hamiltonian, N, m, shots=1000, d
     # res[1] is divided by sqrt(shots), thus the true variance must be scaled back
     std = np.real(res[1]) * np.sqrt(shots)
     return (1 - alpha) * mean + alpha * std
+
+
+def cost_function_beta(params, beta, backend, hamiltonian, N, m, shots=1000, depth=1,
+                        use_HF_initial=False, var_form="RyRz", entangler=linear, noise_model=None):
+    if var_form=="RyRz":
+        qc, q, c = create_VQE_circuit_RyRz(params, entangler,N ,depth, m, use_HF_initial)
+    # Implementation of q-UCCSD is a work in progress
+    elif var_form=="UCCSD":
+        qc, q, c = create_VQE_circuit_UCCSD(params, N, use_HF_initial)
+    elif var_form =="SC":
+        qc, q, c = create_VQE_circuit_SC(params, entangler,N ,depth, m, use_HF_initial)
+    else:
+        print("WARNING: Could not find var_form instructions, using RyRz instead")
+        qc, q, c = create_VQE_circuit_RyRz(params, entangler, N, depth)
+    eval_circ_list = hamiltonian.construct_evaluation_circuit(wave_function=qc, statevector_mode=False, qr=q, cr=c)
+    job = execute(eval_circ_list, backend, shots=shots)#, noise_model=noise_model)
+    result = job.result()
+    res = hamiltonian.evaluate_with_result(result=result, statevector_mode=False)
+    mean = np.real(res[0])
+    # res[1] is divided by sqrt(shots), thus the true variance must be scaled back
+    std = np.real(res[1]) * np.sqrt(shots)
+    return mean + beta * std
 
 
 def find_optimal_params(backend, method, init_params, alpha, hamiltonian, N, m, shots, depth=1, use_HF_initial=False, var_form="RyRz",
@@ -364,9 +388,12 @@ def find_effect_of_alpha(backend, alpha_list,  hamiltonian, N, m, init_params, d
             energy_matrix[i, j] = mean
             std_matrix[i, j] = std
     if save_results:
-        energy_string =  "data_VVQE/energy_matrix_var_form_" + var_form + "_entangler_" + entangler.__name__ + ".csv"
-        std_string = "data_VVQE/std_matrix_var_form_" + var_form + "_entangler_" + entangler.__name__ + ".csv"
-        alpha_string = "data_VVQE/alpha_list_" + var_form + "_entangler_" + entangler.__name__ + ".csv"
+        universal_save_string = "var_form_" + var_form + "_entangler_" + entangler.__name__ + "_d_" \
+                                + str(depth) + "_HF_initial_" + str(use_HF_initial) + \
+                                "_cost_function_" + cost_function.__name__ + ".csv"
+        energy_string =  "data_VVQE/energy_matrix_" + universal_save_string
+        std_string = "data_VVQE/std_matrix_" + universal_save_string
+        alpha_string = "data_VVQE/alpha_list_" + var_form + universal_save_string
         np.savetxt(energy_string, energy_matrix, delimiter=",")
         np.savetxt(std_string, std_matrix, delimiter=",")
         np.savetxt(alpha_string, alpha_list, delimiter=",")
@@ -377,8 +404,7 @@ def plot_effects_of_alpha(alpha_list, energy_matrix, std_matrix, sup_title="", E
     fig, ax = plt.subplots(len(alpha_list), 1, sharex=True, sharey=True)
     big, bx = plt.subplots(len(alpha_list), 1, sharex=True, sharey=True)
     for i in range(np.shape(energy_matrix)[0]):
-        n, bins, patches = ax[i].hist(x=energy_matrix[i], bins='auto', color='#0504aa',
-                                      alpha=0.5, rwidth=0.85)
+        n, bins, patches = ax[i].hist(x=energy_matrix[i], bins='auto', color='#0504aa', alpha=0.7, rwidth=0.85)
         ax[i].set_title(r"$\alpha = $ %0.2f" % alpha_list[i])
         ax[i].set_ylabel('Freq.')
         maxfreq = n.max()
@@ -386,9 +412,9 @@ def plot_effects_of_alpha(alpha_list, energy_matrix, std_matrix, sup_title="", E
         ax[i].axvline(np.amin(energy_matrix[i]), 0, maxfreq, linestyle="--", color="r")
         if E_0 != 0:
             ax[i].axvline(E_0, 0, maxfreq, color="b", linestyle="--")
-        n, bins, patches = bx[i].hist(x=std_matrix[i], bins="auto", color='#0504aa',
-                                    alpha=0.7, rwidth=0.85)
+        n, bins, patches = bx[i].hist(x=std_matrix[i], bins="auto", color='#0504aa', alpha=0.7, rwidth=0.85)
         bx[i].set_ylabel('Frequency')
+        maxfreq = n.max()
         bx[i].set_title(r"$\alpha = $ %0.2f" % alpha_list[i])
         bx[i].axvline(np.mean(std_matrix[i]), 0, maxfreq, color="k")
 
