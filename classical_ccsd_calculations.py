@@ -47,7 +47,7 @@ def get_ccsd_energies_H2O(dist_list, print_info=False):
     basis = 'sto-3g'
     multiplicity = 1
     # Set calculation parameters.
-    run_ccsd = 1
+    run_ccsd = True
     ccsd_energies = np.zeros(len(dist_list))
     for i in range(len(dist_list)):
         bond_length = dist_list[i]
@@ -57,13 +57,11 @@ def get_ccsd_energies_H2O(dist_list, print_info=False):
         molecule = MolecularData(geometry, basis, multiplicity, description=str(round(bond_length, 2)))
         print("Finished with initialization the geometry")
         # Run Psi4.
-        molecule = run_psi4(molecule, run_scf=True, run_ccsd=run_ccsd,
-                            memory=8000, delete_input=True, delete_output=True)
+        molecule = run_psi4(molecule, run_scf=True, run_ccsd=run_ccsd, delete_input=True, delete_output=True)
         print("Finished with molecule calculations")
         if print_info:
             # Print out some results of calculation.
-            print('At bond length of {} angstrom, H2O has:'.format(np.round(
-                bond_length, 3)))
+            print('At bond length of {} angstrom, H2O has:'.format(np.round(bond_length, 3)))
             print('CCSD energy of {} Hartree.'.format(np.round(molecule.ccsd_energy, 5)))
         print()
         ccsd_energies[i] = molecule.ccsd_energy
@@ -90,7 +88,7 @@ def get_ccsd_energies_H4(angle_list, print_info=False, R=1.738):
         b = R * np.sin(angle/2)
         geometry = [('H', (-a, -b, 0.)), ('H', (a, -b, 0.)), ('H', (a, b, 0.)), ('H', (-a, b, 0.))]
         molecule = MolecularData(geometry, basis, multiplicity, description=str(round(angle, 2)))
-        print("Finished with initialization the geometry")
+        print("Finished with initializing the geometry")
         # Run Psi4.
         molecule = run_psi4(molecule, run_scf=True, run_ccsd=run_ccsd,
                             memory=8000, delete_input=True, delete_output=True)
