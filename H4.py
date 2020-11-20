@@ -1,30 +1,19 @@
-from qiskit import QuantumCircuit, ClassicalRegister, QuantumRegister
-
-from qiskit import Aer, execute
-backend = Aer.get_backend("qasm_simulator")
-
-from qiskit.aqua.components.optimizers import COBYLA
+from qiskit import QuantumCircuit, ClassicalRegister, QuantumRegister, Aer, BasicAer
 
 from qiskit.aqua.algorithms import VQE, NumPyEigensolver
-import matplotlib.pyplot as plt
-import numpy as np
 from qiskit.chemistry.components.variational_forms import UCCSD
 from qiskit.chemistry.components.initial_states import HartreeFock
 from qiskit.circuit.library import EfficientSU2
 from qiskit.aqua.components.optimizers import COBYLA, SPSA, SLSQP
 from qiskit.aqua.operators import Z2Symmetries
-from qiskit import IBMQ, BasicAer, Aer
-from qiskit.chemistry.drivers import PySCFDriver, UnitsType, Molecule
+from qiskit.chemistry.drivers import PySCFDriver, Molecule
 from qiskit.chemistry import FermionicOperator
-from qiskit import IBMQ
-from qiskit.aqua import QuantumInstance
-from qiskit.ignis.mitigation.measurement import CompleteMeasFitter
-from qiskit.providers.aer.noise import NoiseModel
 
 from openfermion.hamiltonians import MolecularData
 from openfermionpsi4 import run_psi4
 
-from pyscf import gto, scf
+import matplotlib.pyplot as plt
+import numpy as np
 
 global g_energy, g_params
 
@@ -79,7 +68,7 @@ def get_ccsd_energy(angle):
     molecule = run_psi4(moleculedata, run_scf=True, run_ccsd=True, delete_input=True, delete_output=True)
     return molecule.ccsd_energy
 
-def get_quccsd_energy(angle, exact=False):
+def get_quccsd_energy(angle, backend, exact=False):
     qubitOp, num_particles, num_spin_orbitals, shift = get_qubit_op(angle)
 
     exact_energy=None
@@ -123,7 +112,7 @@ plt.savefig('HF.png')
 ### 2) energies obtianed by exact, ccsd, and quccsd methods
 for angle in angles:
     print("quccsd and exact energy at", angle, "degrees")
-    quccsd_energy, exact_energy = get_quccsd_energy(angle, True)
+    quccsd_energy, exact_energy = get_quccsd_energy(angle, backend, True)
     print("ccsd at", angle, "degrees")
     ccsd_energy = get_ccsd_energy(angle)
     exact_energies.append(exact_energy)
