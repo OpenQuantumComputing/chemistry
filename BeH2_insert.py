@@ -6,9 +6,9 @@ matplotlib.use('Agg')
 class EnergyCalculator(EnergyCalculatorBase):
     def get_geometry(self, dist):
         geometry = []
-        geometry.append(("Be", [   0., 0., 0.]))
-        geometry.append(("H" , [ dist, 0., 0.]))
-        geometry.append(("H" , [-dist, 0., 0.]))
+        geometry.append(("Be", [   0., dist, 0.]))
+        geometry.append(("H" , [ 1.25, 0., 0.]))
+        geometry.append(("H" , [-1.25, 0., 0.]))
         return geometry
 
 ecalc = EnergyCalculator()
@@ -16,7 +16,7 @@ ecalc = EnergyCalculator()
 backend = BasicAer.get_backend("statevector_simulator")
 #backend = Aer.get_backend("qasm_simulator")
 res=15
-dists = np.linspace(0.5, 3., res)
+dists = np.linspace(0, 3., res)
 exact_energies = []
 ccsd_energies = []
 quccsd_energies = []
@@ -29,7 +29,7 @@ for dist in dists:
     i += 1
 plt.figure(figsize=(20,10), dpi=400)
 plt.plot(dists, diagvalues, 'x-')
-plt.savefig('BeH2_HF.png')
+plt.savefig('BeH2_HF_insert.png')
 
 #to reduce the number of qubits used, we freeze the core and remove two unoccupied orbitals
 freeze_list = [0]
@@ -59,7 +59,7 @@ plt.plot(dists, ccsd_energies, 's-',label="CCSD")
 plt.xlabel('Interatomic distance (Angstrom)')
 plt.ylabel('Energy')
 plt.legend()
-plt.savefig('BeH2.png')
+plt.savefig('BeH2_insert.png')
 
 plt.clf()
 plt.plot(dists, np.array(exact_energies)-np.array(ccsd_energies), 's-',label="CCSD")
@@ -67,4 +67,4 @@ plt.plot(dists, np.array(exact_energies)-np.array(quccsd_energies), 'x-', label=
 plt.xlabel('Interatomic distance (Angstrom)')
 plt.ylabel('Energy distance to exact solution')
 plt.legend()
-plt.savefig('BeH2diff.png')
+plt.savefig('BeH2diff_insert.png')
