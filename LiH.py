@@ -36,7 +36,7 @@ remove_list = [-3, -2]
 for dist in dists:
     print("interatomic distance=", dist)
     print("exact energy", end=" ")
-    exact_energy = ecalc.get_exact_energy(dist, backend, freeze_list = freeze_list, remove_list = remove_list)
+    exact_energy = ecalc.get_exact_energy(dist, backend)#, freeze_list = freeze_list, remove_list = remove_list)
     exact_energies.append(exact_energy)
     print(exact_energy)
     print("quccsd energy", end=" ")
