@@ -13,6 +13,7 @@ from openfermion.hamiltonians import MolecularData
 from openfermionpsi4 import run_psi4
 
 import numpy as np
+from pyscf import gto, scf, fci
 
 class EnergyCalculatorBase:
     
@@ -35,15 +36,27 @@ class EnergyCalculatorBase:
         molecule = Molecule(geometry=geometry, multiplicity=multiplicity)
         return molecule
 
-    def get_onebodyintegrals_HF(self, dist):
+    def get_onebodyintegrals_HF(self, dist, basis = 'sto-3g'):
         molecule = self.get_molecule(dist)
-        driver = PySCFDriver(molecule=molecule)
+        driver = PySCFDriver(molecule=molecule, basis=basis)
         qmolecule = driver.run()
         return np.diag(qmolecule.one_body_integrals)
 
-    def get_qubit_op(self, dist, remove_list=[], freeze_list=[]):
+    def get_fci_energy(self, dist, basis = 'sto-3g'):
+        mol = gto.Mole()
+        mol.verbose=0
+        molecule = self.get_geometry(dist, string=True)
+        mol.build(atom = molecule, basis = basis)
+        myhf = scf.RHF(mol).run()
+        #eri = myhf.kernel()
+        cisolver = fci.FCI(mol, myhf.mo_coeff)
+        e, ci = cisolver.kernel()
+        return e
+
+
+    def get_qubit_op(self, dist, remove_list=[], freeze_list=[], basis='sto3g'):
         molecule = self.get_molecule(dist)
-        driver = PySCFDriver(molecule=molecule)
+        driver = PySCFDriver(molecule=molecule, basis=basis)
         qmolecule = driver.run()
         num_particles = qmolecule.num_alpha + qmolecule.num_beta
         num_spin_orbitals = qmolecule.num_orbitals * 2
@@ -70,8 +83,7 @@ class EnergyCalculatorBase:
         shift = energy_shift + qmolecule.nuclear_repulsion_energy
         return qubitOp, num_particles, num_spin_orbitals, shift
 
-    def get_ccsd_energy(self, dist):
-        basis = 'sto-3g'
+    def get_ccsd_energy(self, dist, basis = 'sto-3g'):
         multiplicity = 1
 
         geometry = self.get_geometry(dist)
@@ -79,15 +91,15 @@ class EnergyCalculatorBase:
         molecule = run_psi4(moleculedata, run_scf=True, run_ccsd=True, delete_input=True, delete_output=True)
         return molecule.ccsd_energy
 
-    def get_exact_energy(self, dist, backend, remove_list=[], freeze_list=[]):
-        qubitOp, num_particles, num_spin_orbitals, shift = self.get_qubit_op(dist, remove_list=remove_list, freeze_list=freeze_list)
+    def get_exact_energy(self, dist, backend, remove_list=[], freeze_list=[], basis='sto3g'):
+        qubitOp, num_particles, num_spin_orbitals, shift = self.get_qubit_op(dist, remove_list=remove_list, freeze_list=freeze_list, basis = basis)
 
         result = NumPyEigensolver(qubitOp).run()
         exact_energy = np.real(result.eigenvalues) + shift
         return exact_energy[0]
 
-    def get_quccsd_energy(self, dist, backend, remove_list=[], freeze_list=[]):
-        qubitOp, num_particles, num_spin_orbitals, shift = self.get_qubit_op(dist, remove_list=remove_list, freeze_list=freeze_list)
+    def get_quccsd_energy(self, dist, backend, remove_list=[], freeze_list=[], basis='sto3g'):
+        qubitOp, num_particles, num_spin_orbitals, shift = self.get_qubit_op(dist, remove_list=remove_list, freeze_list=freeze_list, basis = basis)
 
         initial_state = HartreeFock(num_spin_orbitals, num_particles, qubit_mapping='parity') 
         var_form = UCCSD(num_orbitals=num_spin_orbitals, num_particles=num_particles, initial_state=initial_state, qubit_mapping='parity')
