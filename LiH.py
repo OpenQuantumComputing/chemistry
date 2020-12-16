@@ -30,19 +30,19 @@ plt.savefig('LiH_HF.png')
 
 #to reduce the number of qubits used, we freeze the core and remove two unoccupied orbitals
 freeze_list = [0]
-remove_list = [-3, -2]
+remove_list = [-3, -2] # negative number denotes the reverse order
 
 ### 2) energies obtianed by exact, ccsd, and quccsd methods
 for dist in dists:
     print("interatomic distance=", dist)
-    print("exact energy", end=" ")
-    exact_energy = ecalc.get_exact_energy(dist, backend)#, freeze_list = freeze_list, remove_list = remove_list)
-    exact_energies.append(exact_energy)
-    print(exact_energy)
     print("quccsd energy", end=" ")
     quccsd_energy = ecalc.get_quccsd_energy(dist, backend, freeze_list = freeze_list, remove_list = remove_list)
     quccsd_energies.append(quccsd_energy)
     print(quccsd_energy)
+    print("exact energy", end=" ")
+    exact_energy = ecalc.get_exact_energy(dist, backend)#, freeze_list = freeze_list, remove_list = remove_list)
+    exact_energies.append(exact_energy)
+    print(exact_energy)
     print("ccsd energy", end=" ")
     ccsd_energy = ecalc.get_ccsd_energy(dist)
     ccsd_energies.append(ccsd_energy)

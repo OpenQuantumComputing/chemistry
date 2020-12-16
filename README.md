@@ -11,4 +11,4 @@ LiH
 ![LiH](result_plots/LiH.png)
 
 BeH2
-![BeH2](result_plots/BeH2.png)
+![BeH2](result_plots/BeH2_insert.png)
