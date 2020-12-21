@@ -110,4 +110,6 @@ class EnergyCalculatorBase:
 
         vqe = VQE(qubitOp, var_form, self.optimizer, callback=self.printvalues)
         quccsd_energy = np.real(vqe.run(backend)['eigenvalue'] + shift)
-        return quccsd_energy 
+        ind = min(g_energy, key=g_energy.get)
+
+        return quccsd_energy, g_energy[ind]+shift, g_params[ind]
